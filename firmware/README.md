@@ -94,9 +94,27 @@ So the repository layout is:
 
 ```
 Drone/
-├── madflight/          <- the madflight library (git submodule or clone)
+├── madflight/          <- the madflight library (git submodule)
 └── firmware/           <- this project
 ```
+
+`madflight/` is a git submodule pointing at the fork
+[btechioi/madflight](https://github.com/btechioi/madflight), branch
+`feature/pico2-gy87`, which contains the library changes listed in
+section 9.1. Clone with the submodule:
+
+```bash
+git clone --recurse-submodules https://github.com/btechioi/Drone.git
+```
+
+or, in an existing clone:
+
+```bash
+git submodule update --init --recursive
+```
+
+The same library changes are also submitted upstream as
+[PR #168](https://github.com/qqqlab/madflight/pull/168).
 
 ---
 
@@ -545,18 +563,21 @@ scale works as documented and `bat_cal_i` is the shunt resistance in ohm.
 ## 9. Project layout
 
 ```
-firmware/
-├── platformio.ini          PlatformIO project, environment RP2350A
-├── src/
-│   ├── madflight_config.h  pins, sensors and link settings
-│   ├── main.cpp            the only file that includes <madflight.h>
-│   ├── protocol.h          the drone link protocol
-│   ├── telemetry.h/.cpp    the telemetry task
-└── tools/
-    ├── gen_param.py        regenerates madflight's param.yaml.h
-    ├── pre_gen_param.py    PlatformIO pre-build hook
-    ├── gcs.py              host ground station tool
-    └── test_protocol.py    protocol self test
+Drone/
+├── .gitmodules              madflight submodule
+├── madflight/               the madflight library (submodule)
+└── firmware/
+    ├── platformio.ini       PlatformIO project, environment RP2350A
+    ├── src/
+    │   ├── madflight_config.h  pins, sensors and link settings
+    │   ├── main.cpp            the only file that includes <madflight.h>
+    │   ├── protocol.h          the drone link protocol
+    │   └── telemetry.h/.cpp    the telemetry task
+    └── tools/
+        ├── gen_param.py        regenerates madflight's param.yaml.h
+        ├── pre_gen_param.py    PlatformIO pre-build hook
+        ├── gcs.py              host ground station tool
+        └── test_protocol.py    protocol self test
 ```
 
 `madflight.h` contains the madflight task definitions and deliberately has no
@@ -581,6 +602,11 @@ which are `#pragma once` safe.
 
 Both new enum values were appended at the **end** of their option lists, so the
 existing enum values keep their numbers and saved configurations stay valid.
+
+These changes live on the branch `feature/pico2-gy87` of the madflight fork
+[btechioi/madflight](https://github.com/btechioi/madflight), which is what the
+`madflight/` submodule points at. They are also submitted upstream in
+[PR #168](https://github.com/qqqlab/madflight/pull/168).
 
 ---
 
