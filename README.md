@@ -46,6 +46,5 @@ python3 tools/test_protocol.py                       # protocol self test
 
 The HMC5883L driver, the `SERIAL` radio link gizmo and the Pico 2 board file
 are added to madflight on the branch `feature/pico2-gy87` of the fork
-[btechioi/madflight](https://github.com/btechioi/madflight) (submodule
-`madflight/`), and submitted upstream in
-[PR #168](https://github.com/qqqlab/madflight/pull/168).
+[btechioi/madflight](https://github.com/btechioi/madflight), which is what the
+`madflight/` submodule points at.

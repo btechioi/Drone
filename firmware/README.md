@@ -113,8 +113,9 @@ or, in an existing clone:
 git submodule update --init --recursive
 ```
 
-The same library changes are also submitted upstream as
-[PR #168](https://github.com/qqqlab/madflight/pull/168).
+The same library changes are also kept on the fork
+[btechioi/madflight](https://github.com/btechioi/madflight), branch
+`feature/pico2-gy87`.
 
 ---
 
@@ -605,8 +606,7 @@ existing enum values keep their numbers and saved configurations stay valid.
 
 These changes live on the branch `feature/pico2-gy87` of the madflight fork
 [btechioi/madflight](https://github.com/btechioi/madflight), which is what the
-`madflight/` submodule points at. They are also submitted upstream in
-[PR #168](https://github.com/qqqlab/madflight/pull/168).
+`madflight/` submodule points at.
 
 ---
 
