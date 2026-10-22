@@ -1,0 +1,3 @@
+[submodule "madflight"]
+	path = madflight
+	url = https://github.com/btechioi/madflight.git
