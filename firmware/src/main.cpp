@@ -38,6 +38,7 @@
 #include "madflight_config.h" //Edit this header file to setup the pins, hardware, radio, etc. for madflight
 #include <madflight.h>
 #include "telemetry.h"
+#include "arming_gate.h"
 
 //========================================================================================================================//
 //                                               USER-SPECIFIED VARIABLES                                                 //
@@ -142,25 +143,27 @@ void led_Blink() {
 }
 
 void out_KillSwitchAndFailsafe() {
-  //Change to ARMED when rcl is armed (by switch or stick command)
-  if (!out.armed() && rcl.armed) {
+  static ArmingGate gate;
+  // madflight's connected() can report true before its first packet because
+  // update_ts starts at zero. Require an actual receiver update as well.
+  const bool connected = rcl.update_count() > 0 && rcl.connected();
+  const bool should_arm = gate.update(connected, rcl.armed);
+
+  if (!out.armed() && should_arm) {
     out.set_armed(true);
     Serial.println("OUT: ARMED");
     telemetry.event(TEL_EVENT_ARMED, "ARMED");
-    bbx.start(); //start blackbox logging
-  }
-
-  //Change to DISARMED when rcl is disarmed, or if radio lost connection
-  if (out.armed() && (!rcl.armed || !rcl.connected())) {
+    bbx.start();
+  } else if (out.armed() && !should_arm) {
     out.set_armed(false);
-    if(!rcl.armed) {
-      Serial.println("OUT: DISARMED");
-      telemetry.event(TEL_EVENT_DISARMED, "DISARMED");
-      bbx.stop(); //stop blackbox logging
-    }else{
+    if (!connected) {
       Serial.println("OUT: DISARMED due to lost radio connection");
       telemetry.event(TEL_EVENT_DISARMED, "DISARMED (radio lost)");
-      //keep on logging to document the crash...
+      // Keep logging to document the loss.
+    } else {
+      Serial.println("OUT: DISARMED");
+      telemetry.event(TEL_EVENT_DISARMED, "DISARMED");
+      bbx.stop();
     }
   }
 }

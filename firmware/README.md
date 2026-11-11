@@ -9,6 +9,24 @@ controller library.
 * **Telemetry output** &mdash; binary flight data over UART1
 * **Console** &mdash; madflight CLI over USB-CDC (115200 baud)
 
+## Safety and known limitations
+
+**Experimental, not flight-qualified. Do not fly on the basis of these tests.**
+Remove propellers and secure the aircraft for all setup, arming and motor tests.
+The pinned madflight SERIAL receiver has a CRC bug; apply the required patch in
+section 2 before building. The patch fixes the CRC calculation and rejects
+malformed and unknown commands, but it does not address every receiver safety
+concern: PING or partial channel updates retain previous controls. Do not use
+PING as a stop or disarm command. The 3-second link timeout is long for a
+moving aircraft and is not a substitute for an independent kill switch.
+
+The firmware now inhibits re-arming after link loss until a connected disarmed
+state has been observed, but this has only been tested on a host, not on the
+aircraft. Perform propellers-off tests of arming, disarming, loss and recovery
+on your actual hardware. Shared I2C contention, sensor orientation, motor order,
+yaw direction and PID tuning also require verification. There is no guarantee
+of safe behavior after an IMU task failure or other firmware faults.
+
 ---
 
 ## 1. Hardware
@@ -68,7 +86,22 @@ that all three devices answer.
 
 ## 2. Building and flashing
 
-Requirements: [PlatformIO Core](https://platformio.org/) (the `pio` command).
+Requirements: [PlatformIO Core](https://platformio.org/) (the `pio` command),
+PyYAML in the Python environment running PlatformIO, and pyserial for the host
+serial tool. From the repository root, initialize the submodule and apply the
+required CRC patch **once per checkout**:
+
+```bash
+git submodule update --init --recursive
+git -C madflight apply ../firmware/patches/madflight-serial-crc.patch
+python3 -m pip install -r firmware/requirements.txt
+```
+
+The patch intentionally modifies the submodule working tree. Reapply it after
+resetting or reinitializing the submodule. The pre-build check refuses the
+known buggy receiver; if the submodule is updated, review the receiver and
+patch/check together rather than blindly applying this patch. If PlatformIO uses
+a separate Python environment, install PyYAML in that environment too.
 
 ```bash
 cd firmware
@@ -247,8 +280,9 @@ the stick mode after conversion):
 | 6 | flight mode | 1165 + 130 x index (0..5) |
 
 **Link timeout:** the flight controller declares the control link lost when no
-frame has arrived for 3 seconds, and disarms. Send at least one frame every
-3 seconds; 10 Hz is typical, 20 Hz is used by the host tool.
+frame has arrived for 3 seconds, and disarms. After reconnection, send a disarmed state before requesting
+arming again. A PING keeps the last control values active and does not disarm.
+Send at least one frame every 3 seconds; 10 Hz is typical, 20 Hz is used by the host tool.
 
 **Arming:** the flight controller only arms when the throttle is at zero and
 the arm switch goes from disarmed to armed. In stick mode the host tool
@@ -269,7 +303,7 @@ Implemented by `src/telemetry.cpp`.
 | `0x07` | `BATTERY` | 2 Hz | 20 bytes |
 | `0x08` | `MOTORS` | 10 Hz | 36 bytes |
 | `0x09` | `PID` | 10 Hz | 48 bytes |
-| `0x0A` | `EVENT` | on demand | 3 + N bytes |
+| `0x0A` | `EVENT` | on demand | 2 + N bytes |
 
 Total link load is about 5 kB/s, roughly 45% of the 115200 baud link.
 
@@ -289,7 +323,7 @@ Total link load is about 5 kB/s, roughly 45% of the 115200 baud link.
 
 Status flags: `0x01` armed, `0x02` control link connected, `0x04` IMU detected,
 `0x08` barometer detected, `0x10` magnetometer detected, `0x20` battery monitor
-detected, `0x40` control link error.
+detected. `0x40` is reserved and is not currently populated.
 
 #### `IMU` (0x02)
 
@@ -407,12 +441,19 @@ python3 tools/gcs.py --control /dev/ttyUSB1 --ping
 the flight mode (0..5), `--rate` sets the frame rate and `--duration` limits
 how long the tool runs (0 = until Ctrl-C).
 
-The tool refuses to arm with a non-zero throttle.
+The tool refuses to arm with a non-zero throttle. Stopping the tool does not
+send an explicit disarm: the receiver will retain its last state until timeout.
+Raw channel commands can arm; omitted channels retain their previous values.
+The tool rejects using control and telemetry in the same process because they
+would otherwise run sequentially; use two processes if both are needed.
 
 ### 5.3 Protocol self test
 
 ```bash
 python3 tools/test_protocol.py
+python3 -m unittest discover -s tests -v
+g++ -std=c++11 -Wall -Wextra -Werror tests/test_arming_gate.cpp -o /tmp/test-arming-gate
+/tmp/test-arming-gate
 ```
 
 The test verifies the CRC implementation against the values produced by

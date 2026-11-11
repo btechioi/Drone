@@ -49,10 +49,6 @@ import struct
 import sys
 import time
 
-try:
-    import serial
-except ImportError:  # pragma: no cover - depends on the host
-    sys.exit("This tool needs pyserial. Install it with: pip install pyserial")
 
 
 # ----------------------------------------------------------------------------
@@ -158,10 +154,12 @@ class FrameParser:
                 break
             body = bytes(self.buf[2 : 5 + length])
             crc_rx = self.buf[5 + length] | (self.buf[6 + length] << 8)
-            del self.buf[:total]
             if crc16(body) != crc_rx:
+                # A corrupt length may have swallowed the start of a valid frame.
+                del self.buf[:1]
                 self.errors += 1
                 continue
+            del self.buf[:total]
             frames.append((msg_id, bytes(body[3:])))
         return frames
 
@@ -301,6 +299,8 @@ def decode_pid(p):
 def decode_event(p):
     event_id = _u8(p, 0)
     length = _u8(p, 1)
+    if len(p) != 2 + length:
+        raise ValueError("event text length does not match payload")
     text = p[2 : 2 + length].decode("ascii", "replace")
     return {"event": event_id, "text": text}
 
@@ -326,7 +326,7 @@ def format_decoded(msg_id, payload):
     name, decoder = entry
     try:
         data = decoder(payload)
-    except (struct.error, IndexError) as exc:
+    except (struct.error, IndexError, ValueError) as exc:
         return "%s decode error: %s (%d bytes)" % (name, exc, len(payload))
     if msg_id == MSG_EVENT:
         return "EVENT   [%d] %s" % (data["event"], data["text"])
@@ -424,15 +424,27 @@ def frame_set_sticks(roll, pitch, yaw, throttle, arm=False, flightmode=0):
     arm        True to request arming (throttle must be zero)
     flightmode 0..5
     """
+    for name, value, low, high in (
+        ("roll", roll, -1, 1), ("pitch", pitch, -1, 1),
+        ("yaw", yaw, -1, 1), ("throttle", throttle, 0, 1),
+    ):
+        if not math.isfinite(value) or not low <= value <= high:
+            raise ValueError("%s must be finite and between %s and %s" % (name, low, high))
+    if not isinstance(flightmode, int) or not 0 <= flightmode <= 5:
+        raise ValueError("flightmode must be an integer between 0 and 5")
     payload = struct.pack(
-        "<ffffBB", roll, pitch, yaw, throttle, 1 if arm else 0, flightmode & 0xFF
+        "<ffffBB", roll, pitch, yaw, throttle, 1 if arm else 0, flightmode
     )
     return build_frame(CMD_SET_STICKS, payload)
 
 
 def frame_set_channels(channels):
     """Build a SET_CHANNELS frame from a list of PWM values in microseconds."""
-    channels = [int(c) for c in channels][:20]
+    channels = list(channels)
+    if not 1 <= len(channels) <= 20:
+        raise ValueError("provide between 1 and 20 channels")
+    if any(not isinstance(c, int) or not 0 <= c <= 65535 for c in channels):
+        raise ValueError("channel values must be integers between 0 and 65535")
     payload = struct.pack("<%dH" % len(channels), *channels)
     return build_frame(CMD_SET_CHANNELS, payload)
 
@@ -448,7 +460,11 @@ def frame_ping():
 
 def open_port(port, baud):
     try:
-        return serial.Serial(port, baud, timeout=0.05)
+        import serial
+    except ImportError:
+        sys.exit("This tool needs pyserial. Install it with: pip install pyserial")
+    try:
+        return serial.Serial(port, baud, timeout=0.05, write_timeout=1)
     except serial.SerialException as exc:
         sys.exit("Cannot open %s: %s" % (port, exc))
 
@@ -458,10 +474,11 @@ def run_telemetry(port, baud, duration, raw):
     ser = open_port(port, baud)
     parser = FrameParser()
     print("Telemetry: reading %s at %d baud (Ctrl-C to stop)" % (port, baud))
-    start = time.time()
+    start = time.monotonic()
     frames = 0
+    reported_errors = 0
     try:
-        while duration <= 0 or (time.time() - start) < duration:
+        while duration <= 0 or (time.monotonic() - start) < duration:
             chunk = ser.read(256)
             if chunk:
                 for msg_id, payload in parser.feed(chunk):
@@ -470,9 +487,9 @@ def run_telemetry(port, baud, duration, raw):
                         print("0x%02X %s" % (msg_id, payload.hex()))
                     else:
                         print(format_decoded(msg_id, payload))
-            if parser.errors:
-                sys.stderr.write("framing errors: %d\n" % parser.errors)
-                parser.errors = 0
+            if parser.errors != reported_errors:
+                reported_errors = parser.errors
+                sys.stderr.write("framing errors: %d\n" % reported_errors)
     except KeyboardInterrupt:
         pass
     finally:
@@ -489,16 +506,18 @@ def run_control(port, baud, rate, duration, frame_fn):
         % (port, baud, rate)
     )
     sent = 0
-    start = time.time()
+    start = time.monotonic()
     next_tx = start
     try:
-        while duration <= 0 or (time.time() - start) < duration:
-            now = time.time()
+        while duration <= 0 or (time.monotonic() - start) < duration:
+            now = time.monotonic()
             if now < next_tx:
                 time.sleep(min(next_tx - now, 0.01))
                 continue
             next_tx = now + period
-            ser.write(frame_fn())
+            frame = frame_fn()
+            if ser.write(frame) != len(frame):
+                raise IOError("incomplete control frame write")
             sent += 1
     except KeyboardInterrupt:
         pass
@@ -570,8 +589,20 @@ def main():
         parser.print_help()
         return 1
 
-    if args.sticks and args.channels:
-        sys.exit("Use either --sticks or --channels, not both.")
+    if args.telemetry and args.control:
+        parser.error("use separate processes for telemetry and control")
+    if args.baud <= 0 or args.rate <= 0:
+        parser.error("baud and rate must be positive")
+    if not math.isfinite(args.duration) or args.duration < 0:
+        parser.error("duration must be finite and non-negative")
+    if sum((bool(args.sticks), bool(args.channels), args.ping)) > 1:
+        parser.error("choose only one of --sticks, --channels and --ping")
+    if args.arm and not args.sticks:
+        parser.error("--arm requires --sticks")
+    if not 0 <= args.flightmode <= 5:
+        parser.error("flightmode must be between 0 and 5")
+    if not args.control and (args.sticks or args.channels or args.ping or args.arm):
+        parser.error("control data requires --control")
 
     # --- control link ---
     if args.control:
@@ -582,6 +613,10 @@ def main():
                     "Refusing to arm with a non-zero throttle "
                     "(the flight controller requires throttle zero to arm)."
                 )
+            try:
+                frame_set_sticks(roll, pitch, yaw, throttle, args.arm, args.flightmode)
+            except ValueError as exc:
+                parser.error(str(exc))
             frame_fn = lambda: frame_set_sticks(  # noqa: E731
                 roll, pitch, yaw, throttle, args.arm, args.flightmode
             )
@@ -590,8 +625,14 @@ def main():
                 "Make sure the props are clear."
             )
         elif args.channels:
+            try:
+                frame_set_channels(args.channels)
+            except ValueError as exc:
+                parser.error(str(exc))
+            print("WARNING: raw channels can arm motors and omitted channels retain their previous values.")
             frame_fn = lambda: frame_set_channels(args.channels)  # noqa: E731
         elif args.ping:
+            print("WARNING: ping keeps the link alive without changing the previous controls; it does not disarm.")
             frame_fn = frame_ping
         else:
             sys.exit(
