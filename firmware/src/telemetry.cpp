@@ -239,7 +239,7 @@ void Telemetry::send_message(uint8_t id) {
 void Telemetry::send_status() {
   uint8_t flags = 0;
   if(out.armed()) flags |= TEL_FLAG_ARMED;
-  if(rcl.connected()) flags |= TEL_FLAG_RCL_LINK;
+  if(rcl.update_count() > 0 && rcl.connected()) flags |= TEL_FLAG_RCL_LINK;
   if(imu.installed()) flags |= TEL_FLAG_IMU_OK;
   if(bar.installed()) flags |= TEL_FLAG_BAR_OK;
   if(mag.installed()) flags |= TEL_FLAG_MAG_OK;

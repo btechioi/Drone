@@ -1,0 +1,84 @@
+diff --git a/src/rcl/RclGizmoSerial.h b/src/rcl/RclGizmoSerial.h
+index 7a097b1..3ef2c5a 100644
+--- a/src/rcl/RclGizmoSerial.h
++++ b/src/rcl/RclGizmoSerial.h
+@@ -65,6 +65,8 @@ SOFTWARE.
+ 
+ #pragma once
+ 
++#include <cmath>
++
+ #include "rcl.h"
+ #include "../hal/MF_Serial.h"
+ #include "../tbx/tbx_crc.h"
+@@ -178,26 +180,30 @@ class RclGizmoSerial : public RclGizmo {
+           frame[4 + frame_len] = c;
+           state = ST_SYNC1;
+           //the CRC covers the command, the length and the payload
++          frame[0] = cmd;
+           uint16_t crc_calc = tbx_crc16(&frame[0], 3 + frame_len);
+           uint16_t crc_recv = (uint16_t)frame[3 + frame_len] | ((uint16_t)frame[4 + frame_len] << 8);
+           if(crc_calc != crc_recv) {
+             error_cnt++;
+             break;
+           }
+-          frame[0] = cmd;
++          // Malformed and unknown commands must not refresh the RC timeout.
++          if(!_handle_frame()) {
++            error_cnt++;
++            break;
++          }
+           frame_cnt++;
+-          _handle_frame();
+           return true;
+         }
+       }
+       return false;
+     }
+ 
+-    void _handle_frame() {
++    bool _handle_frame() {
+       switch(cmd) {
+         case RCL_SERIAL_CMD_SET_CHANNELS: {
++          if(frame_len == 0 || frame_len > RCL_MAX_CH * 2 || (frame_len & 1)) return false;
+           int n = frame_len / 2;
+-          if(n > RCL_MAX_CH) n = RCL_MAX_CH;
+           for(int i = 0; i < n; i++) {
+             pwm[i] = (uint16_t)frame[3 + i*2] | ((uint16_t)frame[4 + i*2] << 8);
+           }
+@@ -205,11 +211,16 @@ class RclGizmoSerial : public RclGizmo {
+         }
+ 
+         case RCL_SERIAL_CMD_SET_STICKS: {
+-          if(frame_len < 18) { error_cnt++; break; }
+-          stick_roll     = _getf32(3);
+-          stick_pitch    = _getf32(7);
+-          stick_yaw      = _getf32(11);
+-          stick_throttle = _getf32(15);
++          if(frame_len != 18) return false;
++          float roll = _getf32(3), pitch = _getf32(7), yaw = _getf32(11), throttle = _getf32(15);
++          if(!std::isfinite(roll) || !std::isfinite(pitch) || !std::isfinite(yaw) ||
++             !std::isfinite(throttle) || roll < -1.0f || roll > 1.0f ||
++             pitch < -1.0f || pitch > 1.0f || yaw < -1.0f || yaw > 1.0f ||
++             throttle < 0.0f || throttle > 1.0f || frame[19] > 1 || frame[20] > 5) return false;
++          stick_roll     = roll;
++          stick_pitch    = pitch;
++          stick_yaw      = yaw;
++          stick_throttle = throttle;
+           stick_arm      = frame[19];
+           stick_mode     = frame[20];
+           _apply_sticks();
+@@ -217,8 +228,13 @@ class RclGizmoSerial : public RclGizmo {
+         }
+ 
+         case RCL_SERIAL_CMD_PING:
++          if(frame_len != 0) return false;
+           break;
++
++        default:
++          return false;
+       }
++      return true;
+     }
+ 
+     //convert the normalized stick values into PWM values and write them to the channels

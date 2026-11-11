@@ -38,7 +38,7 @@ Telemetry messages (flight controller -> host)
   0x07 BATTERY    20 bytes  see send_battery()
   0x08 MOTORS     36 bytes  see send_motors()
   0x09 PID        48 bytes  see send_pid()
-  0x0A EVENT      3+N bytes event id, length, ascii text
+  0x0A EVENT      2+N bytes event id, length, ascii text
 
 Control messages (host -> flight controller)
 --------------------------------------------
@@ -98,7 +98,7 @@ Control messages (host -> flight controller)
 #define TEL_FLAG_BAR_OK      0x08 // barometer detected
 #define TEL_FLAG_MAG_OK      0x10 // magnetometer detected
 #define TEL_FLAG_BAT_OK      0x20 // battery monitor detected
-#define TEL_FLAG_RCL_FAULT   0x40 // control link error (crc / framing)
+#define TEL_FLAG_RCL_FAULT   0x40 // reserved; not currently set by telemetry
 
 //-------------------------------------------------------------------------------------------------
 // Event ids

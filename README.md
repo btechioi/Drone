@@ -21,11 +21,20 @@ Drone/
 | Console | madflight CLI over USB-CDC |
 | Motors | 4 outputs, GPIO2..GPIO5, 400 Hz PWM, 950-2000 us |
 
+> **Safety: experimental firmware, not flight-qualified.** Remove propellers
+> for all setup and testing. The pinned madflight receiver has a CRC defect;
+> apply the included patch before building. See the
+> [safety notes](firmware/README.md#safety-and-known-limitations) before use.
+
 ## Quick start
 
 ```bash
 git clone --recurse-submodules https://github.com/btechioi/Drone.git
-cd Drone/firmware
+cd Drone
+# Apply the required fix to the initialized submodule (once per checkout).
+git -C madflight apply ../firmware/patches/madflight-serial-crc.patch
+python3 -m pip install -r firmware/requirements.txt
+cd firmware
 pio run -e RP2350A                # build
 pio run -e RP2350A -t upload      # flash over USB
 pio device monitor -e RP2350A    # console (type 'help')
@@ -37,6 +46,7 @@ Host ground station tool:
 python3 tools/gcs.py --telemetry /dev/ttyUSB0        # watch telemetry
 python3 tools/gcs.py --control /dev/ttyUSB1 --sticks 0 0 0 0 --arm --duration 5
 python3 tools/test_protocol.py                       # protocol self test
+python3 -m unittest discover -s tests -v               # regression tests
 ```
 
 **Full documentation, wiring tables and the protocol reference are in
