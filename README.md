@@ -3,10 +3,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/btechioi/Drone?style=for-the-badge&color=00e1ff" /> <img src="https://img.shields.io/github/forks/btechioi/Drone?style=for-the-badge&color=0055ff" /> <img src="https://img.shields.io/github/license/btechioi/Drone?style=for-the-badge&color=00e1ff" />
-</p>
-
-<p align="center">
   <b>Drone firmware for Raspberry Pi Pico 2 (RP2350) + GY-87 10DOF, based on madflight - binary RC link over UART0, telemetry over UART1</b>
 </p>
 
